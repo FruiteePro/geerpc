@@ -2,6 +2,7 @@ package geerpc
 
 import (
 	"errors"
+	"fmt"
 	"geerpc/codec"
 	"io"
 	"sync"
@@ -24,11 +25,11 @@ func (call *Call) done() {
 
 type Client struct {
 	cc       codec.Codec      // 消息的编解码器
-	opt      *Option          //
+	opt      *Option          // 编码信息
 	sending  sync.Mutex       // 互斥锁，防止多个请求报文混淆
-	header   codec.Header     //
+	header   codec.Header     // 消息头
 	mu       sync.Mutex       // Client 锁
-	seq      uint64           //
+	seq      uint64           // 请求数量
 	pending  map[uint64]*Call // 存储未处理的请求
 	closing  bool             // 用户主动关闭
 	shutdown bool             // 错误导致关闭
@@ -89,4 +90,34 @@ func (client *Client) terminateCalls(err error) {
 		call.Error = err
 		call.done()
 	}
+}
+
+// 客户端接受响应
+func (client *Client) reveive() {
+	var err error
+	for err == nil {
+		var h codec.Header
+		if err = client.cc.ReadHeaer(&h); err != nil {
+			break
+		}
+		call := client.removeCall(h.Seq)
+		switch {
+		case call == nil:
+			// call 不存在，可能是没有发送完整
+			err = client.cc.ReadBody(nil)
+		case h.Error != "":
+			// call 存在，但服务端出错
+			call.Error = fmt.Errorf(h.Error)
+			err = client.cc.ReadBody(nil)
+			call.done()
+		default:
+			// call 存在，且处理正常
+			err = client.cc.ReadBody(call.Reply)
+			if err != nil {
+				call.Error = errors.New("reading boey " + err.Error())
+			}
+			call.done()
+		}
+	}
+	client.terminateCalls(err)
 }

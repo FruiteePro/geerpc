@@ -1,6 +1,7 @@
 package geerpc
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -240,9 +241,15 @@ func (client *Client) Go(serverMethod string, args, reply interface{}, done chan
 }
 
 // 调用指定函数，等待函数完成，并返回其错误状态。
-func (client *Client) Call(serverMethod string, args, reply interface{}) error {
+func (client *Client) Call(ctx context.Context, serverMethod string, args, reply interface{}) error {
 	call := <-client.Go(serverMethod, args, reply, make(chan *Call, 1)).Done
-	return call.Error
+	select {
+	case <-ctx.Done():
+		client.removeCall(call.Seq)
+		return errors.New("rpc client: call failed: " + ctx.Err().Error())
+	case call := <-call.Done:
+		return call.Error
+	}
 }
 
 type clientResult struct {

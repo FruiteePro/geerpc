@@ -78,14 +78,14 @@ func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 		return
 	}
 	// 处理连接
-	server.serveCodec(f(conn))
+	server.serveCodec(f(conn), &opt)
 }
 
 // invalidRequest 是在发生错误时用于响应参数的占位符。
 var invalidRequest = struct{}{}
 
 // 对连接进行处理
-func (server *Server) serveCodec(cc codec.Codec) {
+func (server *Server) serveCodec(cc codec.Codec, opt *Option) {
 	// 回复请求锁，保证只同时进行一个回复
 	sending := new(sync.Mutex)
 	wg := new(sync.WaitGroup)
@@ -104,7 +104,7 @@ func (server *Server) serveCodec(cc codec.Codec) {
 		}
 		wg.Add(1)
 		// 协程并发 处理
-		go server.handleRequest(cc, req, sending, wg)
+		go server.handleRequest(cc, req, sending, wg, opt.ConnectTimeout)
 	}
 	wg.Wait()
 	_ = cc.Close()

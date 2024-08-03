@@ -78,7 +78,7 @@ func (s *service) registerMethods() {
 			continue
 		}
 		// 检查参数类型
-		argType, replyType := mType.In(i), mType.In(2)
+		argType, replyType := mType.In(1), mType.In(2)
 		if !isExportedOrBuiltinType(argType) || !isExportedOrBuiltinType(replyType) {
 			continue
 		}
@@ -99,7 +99,7 @@ func isExportedOrBuiltinType(t reflect.Type) bool {
 }
 
 // 通过反射调用方法
-func (s *service) Call(m *methodType, argv, replyv reflect.Value) error {
+func (s *service) call(m *methodType, argv, replyv reflect.Value) error {
 	atomic.AddUint64(&m.numCalls, 1)
 	f := m.method.Func
 	returnValue := f.Call([]reflect.Value{s.rcvr, argv, replyv})

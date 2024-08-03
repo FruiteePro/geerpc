@@ -38,6 +38,7 @@ type Client struct {
 	shutdown bool             // 错误导致关闭
 }
 
+// 保证 Client 实现了 Close 方法
 var _ io.Closer = (*Client)(nil)
 
 var ErrShutdown = errors.New("connection is shut down")
@@ -82,7 +83,7 @@ func (client *Client) removeCall(seq uint64) *Call {
 	return call
 }
 
-// 服务端或客户端发生错误时调用
+// client 注销 call
 func (client *Client) terminateCalls(err error) {
 	client.sending.Lock()
 	defer client.sending.Unlock()

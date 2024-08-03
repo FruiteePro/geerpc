@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 // 一次 rpc 调用所需要的信息
@@ -172,23 +173,23 @@ func parseOptions(opts ...*Option) (*Option, error) {
 }
 
 // Dial 连接到指定网络地址的 RPC 服务器
-func Dial(network, address string, opts ...*Option) (client *Client, err error) {
-	opt, err := parseOptions(opts...)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.Dial(network, address)
-	if err != nil {
-		return nil, err
-	}
-	// 如果 client 为 nil 关闭连接
-	defer func() {
-		if client == nil {
-			_ = conn.Close()
-		}
-	}()
-	return NewClient(conn, opt)
-}
+// func Dial(network, address string, opts ...*Option) (client *Client, err error) {
+// 	opt, err := parseOptions(opts...)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	conn, err := net.Dial(network, address)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	// 如果 client 为 nil 关闭连接
+// 	defer func() {
+// 		if client == nil {
+// 			_ = conn.Close()
+// 		}
+// 	}()
+// 	return NewClient(conn, opt)
+// }
 
 // client 发送 call
 func (client *Client) send(call *Call) {
@@ -242,4 +243,55 @@ func (client *Client) Go(serverMethod string, args, reply interface{}, done chan
 func (client *Client) Call(serverMethod string, args, reply interface{}) error {
 	call := <-client.Go(serverMethod, args, reply, make(chan *Call, 1)).Done
 	return call.Error
+}
+
+type clientResult struct {
+	client *Client
+	err    error
+}
+
+type newClientFunc func(conn net.Conn, opt *Option) (client *Client, err error)
+
+func dialTimeout(f newClientFunc, newtwork, address string, opts ...*Option) (client *Client, err error) {
+	opt, err := parseOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
+	// 创建连接
+	conn, err := net.DialTimeout(newtwork, address, opt.ConnectTimeout)
+	if err != nil {
+		return nil, err
+	}
+	// 如果 client 为空，连接关闭
+	defer func() {
+		if err != nil {
+			_ = conn.Close()
+		}
+	}()
+	// 协程通信管道
+	ch := make(chan clientResult)
+	// 协程创建 client
+	go func() {
+		client, err := f(conn, opt)
+		ch <- clientResult{client: client, err: err}
+	}()
+	// 没有超时限制
+	if opt.ConnectTimeout == 0 {
+		result := <-ch
+		return result.client, result.err
+	}
+	// 有超时限制
+	select {
+	case <-time.After(opt.ConnectTimeout):
+		// 如果 time.After 信道先得到消息，说明超时
+		return nil, fmt.Errorf("rpc server: connect timeout: expect within %s", opt.ConnectTimeout)
+	case result := <-ch:
+		// 没有超时
+		return result.client, result.err
+	}
+}
+
+// Dial 连接到指定网络地址的 RPC 服务器
+func Dial(network, address string, opts ...*Option) (*Client, error) {
+	return dialTimeout(NewClient, network, address, opts...)
 }
